@@ -1,0 +1,8 @@
+# 示例 URL 文件
+# 每行一个视频URL，以 # 开头的行会被忽略
+
+# 示例 1: DockerCompose课程
+# https://appezrn4igg1968.h5.xet.citv.cn/p/course/video/v_688f0341e4b0694ca0f5034b?product_id=course_2hrBH6JXlSOjkpCwCMxnqj6g9U4&course_id=course_2hrBH6JXlSOjkpCwCMxnqj6g9U4&sub_course_id=subcourse_2hrsJ2rSc3xoRKWwVHClXrECQr9
+
+# 在此添加您的视频URL
+
