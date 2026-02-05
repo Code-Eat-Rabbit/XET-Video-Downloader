@@ -10,6 +10,7 @@ import re
 import os
 import sys
 import json
+import csv
 from pathlib import Path
 from typing import List, Dict, Optional
 from playwright.sync_api import sync_playwright, Page, BrowserContext
@@ -491,13 +492,100 @@ class VideoDownloader:
 
 def load_urls_from_file(filepath: str) -> List[str]:
     """从文件加载URL列表"""
-    urls = []
-    with open(filepath, 'r', encoding='utf-8') as f:
-        for line in f:
+
+    def looks_like_url(s: str) -> bool:
+        s = s.strip()
+        return s.startswith("http://") or s.startswith("https://")
+
+    def extract_urls_from_text(line: str) -> List[str]:
+        # 从一行文本中提取所有 http(s) URL（适配 CSV 行、日志粘贴等情况）
+        return re.findall(r"https?://\S+", line)
+
+    def read_text_lines(encodings: List[str]) -> List[str]:
+        last_err: Exception | None = None
+        for enc in encodings:
+            try:
+                with open(filepath, "r", encoding=enc) as f:
+                    return f.readlines()
+            except UnicodeDecodeError as e:
+                last_err = e
+                continue
+        if last_err:
+            raise last_err
+        return []
+
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+    urls: List[str] = []
+
+    # CSV：优先解析 url 列；否则自动找以 http(s) 开头的字段
+    if suffix == ".csv":
+        # 常见编码：utf-8-sig（Excel 导出带 BOM）、utf-8、gbk
+        lines = read_text_lines(["utf-8-sig", "utf-8", "gbk"])
+        text = "".join(lines)
+        # 先用 DictReader（有表头时最稳）
+        try:
+            reader = csv.DictReader(text.splitlines())
+            if reader.fieldnames:
+                # fieldnames 可能包含 BOM/空格，这里做一次归一化映射
+                normalized = {name.strip().lstrip("\ufeff").lower(): name for name in reader.fieldnames if name}
+                url_key = None
+                if "url" in normalized:
+                    url_key = normalized["url"]
+                elif "link" in normalized:
+                    url_key = normalized["link"]
+
+                for row in reader:
+                    if not row:
+                        continue
+                    if url_key and row.get(url_key):
+                        candidate = str(row[url_key]).strip()
+                        if looks_like_url(candidate):
+                            urls.append(candidate)
+                            continue
+                    # 兜底：扫描整行字段
+                    for v in row.values():
+                        if v is None:
+                            continue
+                        candidate = str(v).strip()
+                        if looks_like_url(candidate):
+                            urls.append(candidate)
+                            break
+        except csv.Error:
+            # 兜底：当作普通文本提取
+            pass
+
+        if not urls:
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                urls.extend(extract_urls_from_text(line))
+    else:
+        # 普通文本：每行一个 URL；若行里夹杂其他字段，则提取其中的 URL
+        lines = read_text_lines(["utf-8-sig", "utf-8", "gbk"])
+        for line in lines:
             line = line.strip()
-            if line and not line.startswith('#'):
+            if not line or line.startswith("#"):
+                continue
+            if looks_like_url(line):
                 urls.append(line)
-    return urls
+            else:
+                urls.extend(extract_urls_from_text(line))
+
+    # 去重但保序
+    seen: set[str] = set()
+    deduped: List[str] = []
+    for u in urls:
+        u = u.strip().rstrip('",')  # 常见尾部引号/逗号
+        if not looks_like_url(u):
+            continue
+        if u in seen:
+            continue
+        seen.add(u)
+        deduped.append(u)
+
+    return deduped
 
 
 def main():
